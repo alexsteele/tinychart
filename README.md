@@ -2,7 +2,7 @@
 
 A lightweight C++20 line-chart library for macOS.
 
-![Sample tinychart plot with two lines and scatter markers](examples/sample.png)
+![Sample price chart with axis labels, two lines, scatter markers, and a legend](examples/sample.png)
 
 ## Quick example
 
@@ -12,20 +12,21 @@ Link your program to the CMake target `chart`.
 #include <tinychart/macos.hpp>
 
 int main() {
-    auto plot = tinychart::lineChart({{0, 12}, {1, 18}, {2, 15}, {3, 24}});
-    plot.addScatter({{0.8, 16}, {2.2, 18}});
+    auto plot = tinychart::lineChart({
+        .title = "Model", .points = {{0, 12}, {1, 18}, {2, 15}, {3, 24}}
+    });
+    plot.addScatter({.title = "Observations", .points = {{0.8, 16}, {2.2, 18}}})
+        .setTitle("Price trend").setXLabel("Time (hours)").setYLabel("Price (USD)");
     tinychart::writePng(plot, "chart.png", {.size = {800, 480}, .scale = 2});
 }
 ```
 
-Use `scatterPlot(samples)` for a chart with just points.
+Pass points directly to `lineChart`, `scatterPlot`, `addLine`, or `addScatter`. Use `.title` to add a series to the legend.
 
 ## Features
 
-- Line and scatter series on shared axes, with configurable strokes and marker sizes.
-- Automatic axis ranges, optional explicit domains, and plot clipping.
-- Non-finite samples break lines and are skipped in scatter series.
-- PNG export at a chosen scale and a resizable AppKit demo with a hover crosshair.
+- Line and scatter charts with titles, axis labels, and legends.
+- Draws into an AppKit view or exports to PNG.
 
 ## How it works
 

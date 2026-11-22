@@ -123,6 +123,9 @@ void draw(CGContextRef context, const DrawText& command) {
 
     GraphicsState state(context);
     CGContextTranslateCTM(context, command.baseline.x, command.baseline.y);
+    if (command.rotation != 0) {
+        CGContextRotateCTM(context, command.rotation);
+    }
     CGContextScaleCTM(context, 1, -1);
     const auto textMatrix = CGContextGetTextMatrix(context);
     const auto textPosition = CGContextGetTextPosition(context);

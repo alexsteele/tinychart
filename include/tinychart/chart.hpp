@@ -10,8 +10,10 @@
 //
 // Use drawFrame with a Core Graphics context to display the same frame.
 
+#include <initializer_list>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
@@ -43,30 +45,57 @@ struct TextStyle {
 struct AxisSpec {
     std::optional<Domain> domain;
     TextStyle labels;
+    std::string caption{};
 };
 
 struct LineSeries {
     std::vector<Point> samples;
     StrokeStyle stroke{{0.15, 0.38, 0.78}};
+    std::string name;
 };
 
 struct ScatterSeries {
     std::vector<Point> samples;
     MarkerStyle marker;
+    std::string name;
 };
 
 struct ChartSpec {
     AxisSpec x, y;
     std::vector<LineSeries> series;
     std::vector<ScatterSeries> scatterSeries{};
+    std::string title{};
+};
+
+struct LineOptions {
+    std::string title;
+    std::vector<Point> points;
+    std::optional<StrokeStyle> stroke;
+};
+
+struct ScatterOptions {
+    std::string title;
+    std::vector<Point> points;
+    std::optional<MarkerStyle> marker;
 };
 
 class Chart {
 public:
     explicit Chart(ChartSpec spec);
 
-    Chart& addLine(std::vector<Point> samples, std::optional<StrokeStyle> stroke = {});
-    Chart& addScatter(std::vector<Point> samples, std::optional<MarkerStyle> marker = {});
+    Chart& addLine(std::vector<Point> points);
+    Chart& addLine(std::initializer_list<Point> points) {
+        return addLine(std::vector<Point>(points));
+    }
+    Chart& addLine(LineOptions line);
+    Chart& addScatter(std::vector<Point> points);
+    Chart& addScatter(std::initializer_list<Point> points) {
+        return addScatter(std::vector<Point>(points));
+    }
+    Chart& addScatter(ScatterOptions scatter);
+    Chart& setTitle(std::string title);
+    Chart& setXLabel(std::string caption);
+    Chart& setYLabel(std::string caption);
     Chart& setXDomain(Domain domain);
     Chart& setYDomain(Domain domain);
     const ChartSpec& spec() const noexcept { return spec_; }
@@ -75,8 +104,16 @@ private:
     ChartSpec spec_;
 };
 
-Chart lineChart(std::vector<Point> samples, std::optional<StrokeStyle> stroke = {});
-Chart scatterPlot(std::vector<Point> samples, std::optional<MarkerStyle> marker = {});
+Chart lineChart(std::vector<Point> points);
+inline Chart lineChart(std::initializer_list<Point> points) {
+    return lineChart(std::vector<Point>(points));
+}
+Chart lineChart(LineOptions line);
+Chart scatterPlot(std::vector<Point> points);
+inline Chart scatterPlot(std::initializer_list<Point> points) {
+    return scatterPlot(std::vector<Point>(points));
+}
+Chart scatterPlot(ScatterOptions scatter);
 
 struct LinearScale {
     Domain domain;
@@ -125,6 +162,7 @@ struct DrawText {
     Point baseline;
     std::shared_ptr<const ShapedLine> line;
     Color color;
+    double rotation = 0;  // Clockwise radians in chart coordinates.
 };
 
 struct FillCircles { std::vector<Point> centers; MarkerStyle marker; };

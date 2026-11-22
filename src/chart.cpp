@@ -5,6 +5,7 @@
 #include <cmath>
 #include <limits>
 #include <locale>
+#include <numbers>
 #include <numeric>
 #include <sstream>
 #include <stdexcept>
@@ -153,7 +154,125 @@ void removeOverlappingLabels(AxisLayout& axis, bool horizontal) {
     axis.ticks = std::move(visible);
 }
 
-ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text) {
+constexpr double padding = 10;
+constexpr double labelGap = 8;
+constexpr TextStyle titleStyle{20, {0.12, 0.16, 0.22}};
+constexpr TextStyle captionStyle{13, {0.20, 0.24, 0.30}};
+constexpr TextStyle legendStyle{};
+
+struct Label {
+    std::shared_ptr<const ShapedLine> line;
+    TextMetrics metrics{};
+
+    explicit operator bool() const { return static_cast<bool>(line); }
+    double height() const { return metrics.ascent + metrics.descent; }
+};
+
+Label fitLabel(std::string_view value, TextStyle style, TextShaper& text, double width) {
+    if (value.empty() || width <= 0) {
+        return {};
+    }
+    const auto measure = [&](std::string_view label) {
+        auto line = text.shape(label, style);
+        return Label{line, line->metrics()};
+    };
+    auto label = measure(value);
+    if (label.metrics.advance <= width) {
+        return label;
+    }
+
+    auto best = measure("…");
+    if (best.metrics.advance > width) {
+        return {};
+    }
+    std::vector<std::size_t> cuts;
+    for (std::size_t i = 1; i < value.size(); ++i) {
+        if ((static_cast<unsigned char>(value[i]) & 0xc0) != 0x80) {
+            cuts.push_back(i);
+        }
+    }
+    std::size_t first = 0;
+    std::size_t last = cuts.size();
+    while (first < last) {
+        const auto middle = std::midpoint(first, last);
+        auto candidate = measure(std::string(value.substr(0, cuts[middle])) + "…");
+        if (candidate.metrics.advance <= width) {
+            best = std::move(candidate);
+            first = middle + 1;
+        } else {
+            last = middle;
+        }
+    }
+    return best;
+}
+
+constexpr double swatchWidth = 18;
+constexpr double swatchGap = 6;
+constexpr double legendItemGap = 18;
+constexpr double legendRowGap = 5;
+
+struct LegendItem {
+    Label label;
+    std::variant<StrokeStyle, MarkerStyle> swatch;
+
+    double width() const { return swatchWidth + swatchGap + label.metrics.advance; }
+};
+
+struct LegendRow {
+    std::vector<LegendItem> items;
+    double width = 0;
+    double height = 0;
+};
+
+std::vector<LegendRow> makeLegend(const ChartSpec& spec, TextShaper& text, double width) {
+    std::vector<LegendRow> rows;
+    const auto append = [&](std::string_view name, auto swatch) {
+        auto label = fitLabel(name, legendStyle, text, width - swatchWidth - swatchGap);
+        if (!label) {
+            return;
+        }
+        LegendItem item{std::move(label), swatch};
+        if (rows.empty() || rows.back().width + legendItemGap + item.width() > width) {
+            rows.emplace_back();
+        }
+        auto& row = rows.back();
+        row.width += (row.items.empty() ? 0 : legendItemGap) + item.width();
+        row.height = std::max({row.height, item.label.height(), 8.0});
+        row.items.push_back(std::move(item));
+    };
+    for (const auto& line : spec.series) {
+        append(line.name, StrokeStyle{line.stroke.color, std::min(line.stroke.width, 3.0)});
+    }
+    for (const auto& scatter : spec.scatterSeries) {
+        append(scatter.name, MarkerStyle{scatter.marker.color, std::min(scatter.marker.radius, 4.0)});
+    }
+    return rows;
+}
+
+void recordLegend(Layer& layer, const std::vector<LegendRow>& rows, double width, double top) {
+    for (const auto& row : rows) {
+        double left = (width - row.width) / 2;
+        const double centerY = top + row.height / 2;
+        for (const auto& item : row.items) {
+            if (const auto* stroke = std::get_if<StrokeStyle>(&item.swatch)) {
+                layer.commands.emplace_back(StrokePolyline{
+                    {{left, centerY}, {left + swatchWidth, centerY}}, *stroke});
+            } else {
+                layer.commands.emplace_back(FillCircles{
+                    {{left + swatchWidth / 2, centerY}}, std::get<MarkerStyle>(item.swatch)});
+            }
+            const auto metrics = item.label.metrics;
+            const Point baseline{left + swatchWidth + swatchGap,
+                                 centerY + (metrics.ascent - metrics.descent) / 2};
+            layer.commands.emplace_back(DrawText{baseline, item.label.line, legendStyle.color});
+            left += item.width() + legendItemGap;
+        }
+        top += row.height + legendRowGap;
+    }
+}
+
+ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text, Layer& annotations,
+                       bool decorate = true) {
     if (size.width < 80 || size.height < 64) {
         return {};
     }
@@ -168,10 +287,14 @@ ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text) {
     const Domain xDomain = spec.x.domain.value_or(padded(bounds.x));
     const Domain yDomain = spec.y.domain.value_or(padded(bounds.y));
 
-    constexpr double padding = 10;
-    constexpr double labelGap = 8;
+    const auto title = decorate ? fitLabel(spec.title, titleStyle, text, size.width - 2 * padding)
+                                : Label{};
+    const auto yCaption = decorate ? fitLabel(spec.y.caption, captionStyle, text, size.height)
+                                   : Label{};
+    const double above = title ? title.height() + labelGap : 0;
+    const double beside = yCaption ? yCaption.height() + labelGap : 0;
     auto y = makeAxis({yDomain, 0, 1},
-                      static_cast<int>(std::clamp(size.height / 55, 2.0, 10.0)),
+                      static_cast<int>(std::clamp((size.height - above) / 55, 2.0, 10.0)),
                       spec.y.labels, text);
     double yWidth = 0;
     double yPadding = 0;
@@ -181,7 +304,7 @@ ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text) {
         yPadding = std::max(yPadding, (metrics.ascent + metrics.descent) / 2);
     }
 
-    const double left = padding + yWidth + labelGap;
+    const double left = padding + beside + yWidth + labelGap;
     auto x = makeAxis({xDomain, 0, 1},
                       static_cast<int>(std::clamp((size.width - left) / 85, 2.0, 12.0)),
                       spec.x.labels, text);
@@ -194,11 +317,52 @@ ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text) {
     }
 
     const double plotLeft = std::max(left, padding + xPadding);
-    const double top = padding + yPadding;
+    const double top = padding + above + yPadding;
     const double right = size.width - padding - xPadding;
-    const double bottom = size.height - padding - std::max(yPadding, labelGap + xHeight);
+    const auto xCaption = decorate ? fitLabel(spec.x.caption, captionStyle, text, right - plotLeft)
+                                   : Label{};
+    const double below = labelGap + xHeight + (xCaption ? labelGap + xCaption.height() : 0);
+    double bottom = size.height - padding - std::max(yPadding, below);
     if (right - plotLeft < 24 || bottom - top < 24) {
+        if (title || xCaption || yCaption) {
+            return makeLayout(spec, size, text, annotations, false);
+        }
         return {};
+    }
+
+    if (decorate) {
+        const auto legend = makeLegend(spec, text, size.width - 2 * padding);
+        double legendSpace = 0;
+        for (const auto& row : legend) {
+            legendSpace += row.height + legendRowGap;
+        }
+        if (!legend.empty()) {
+            const double legendHeight = legendSpace - legendRowGap;
+            if (bottom - top >= legendHeight + labelGap + 24) {
+                bottom -= legendHeight + labelGap;
+                recordLegend(annotations, legend, size.width, size.height - padding - legendHeight);
+            }
+        }
+    }
+
+    if (title) {
+        const Point baseline{(size.width - title.metrics.advance) / 2, padding + title.metrics.ascent};
+        annotations.commands.emplace_back(DrawText{baseline, title.line, titleStyle.color});
+    }
+    if (xCaption) {
+        const Point baseline{(plotLeft + right - xCaption.metrics.advance) / 2,
+                             bottom + 2 * labelGap + xHeight + xCaption.metrics.ascent};
+        annotations.commands.emplace_back(DrawText{baseline, xCaption.line, captionStyle.color});
+    }
+    if (yCaption) {
+        const auto caption = yCaption.metrics.advance <= bottom - top
+            ? yCaption : fitLabel(spec.y.caption, captionStyle, text, bottom - top);
+        if (caption) {
+            const Point baseline{plotLeft - 2 * labelGap - yWidth - caption.metrics.descent,
+                                 (top + bottom + caption.metrics.advance) / 2};
+            annotations.commands.emplace_back(DrawText{
+                baseline, caption.line, captionStyle.color, -std::numbers::pi / 2});
+        }
     }
 
     x.scale.start = plotLeft;
@@ -351,15 +515,39 @@ void recordScatter(Layer& layer, const ScatterSeries& series, const AxisLayout& 
 
 Chart::Chart(ChartSpec spec) : spec_(std::move(spec)) {}
 
-Chart& Chart::addLine(std::vector<Point> samples, std::optional<StrokeStyle> stroke) {
+Chart& Chart::addLine(std::vector<Point> points) {
+    return addLine(LineOptions{.points = std::move(points)});
+}
+
+Chart& Chart::addLine(LineOptions line) {
     const StrokeStyle fallback{seriesColor(spec_)};
-    spec_.series.push_back({std::move(samples), stroke.value_or(fallback)});
+    spec_.series.push_back({std::move(line.points), line.stroke.value_or(fallback), std::move(line.title)});
     return *this;
 }
 
-Chart& Chart::addScatter(std::vector<Point> samples, std::optional<MarkerStyle> marker) {
+Chart& Chart::addScatter(std::vector<Point> points) {
+    return addScatter(ScatterOptions{.points = std::move(points)});
+}
+
+Chart& Chart::addScatter(ScatterOptions scatter) {
     const MarkerStyle fallback{seriesColor(spec_)};
-    spec_.scatterSeries.push_back({std::move(samples), marker.value_or(fallback)});
+    spec_.scatterSeries.push_back({std::move(scatter.points), scatter.marker.value_or(fallback),
+                                   std::move(scatter.title)});
+    return *this;
+}
+
+Chart& Chart::setTitle(std::string title) {
+    spec_.title = std::move(title);
+    return *this;
+}
+
+Chart& Chart::setXLabel(std::string caption) {
+    spec_.x.caption = std::move(caption);
+    return *this;
+}
+
+Chart& Chart::setYLabel(std::string caption) {
+    spec_.y.caption = std::move(caption);
     return *this;
 }
 
@@ -375,15 +563,23 @@ Chart& Chart::setYDomain(Domain domain) {
     return *this;
 }
 
-Chart lineChart(std::vector<Point> samples, std::optional<StrokeStyle> stroke) {
+Chart lineChart(std::vector<Point> points) {
+    return lineChart(LineOptions{.points = std::move(points)});
+}
+
+Chart lineChart(LineOptions line) {
     Chart chart(ChartSpec{});
-    chart.addLine(std::move(samples), stroke);
+    chart.addLine(std::move(line));
     return chart;
 }
 
-Chart scatterPlot(std::vector<Point> samples, std::optional<MarkerStyle> marker) {
+Chart scatterPlot(std::vector<Point> points) {
+    return scatterPlot(ScatterOptions{.points = std::move(points)});
+}
+
+Chart scatterPlot(ScatterOptions scatter) {
     Chart chart(ChartSpec{});
-    chart.addScatter(std::move(samples), marker);
+    chart.addScatter(std::move(scatter));
     return chart;
 }
 
@@ -423,7 +619,8 @@ Frame buildFrame(const ChartSpec& spec, Size viewport, TextShaper& text) {
         }
     }
 
-    Frame frame{viewport, makeLayout(spec, viewport, text), {}};
+    Layer axes;
+    Frame frame{viewport, makeLayout(spec, viewport, text, axes), {}};
     frame.layers.push_back({{}, {FillRect{{0, 0, viewport.width, viewport.height}, {1, 1, 1}}}});
     if (!frame.layout.x || !frame.layout.y) {
         return frame;
@@ -438,7 +635,6 @@ Frame buildFrame(const ChartSpec& spec, Size viewport, TextShaper& text) {
     const StrokeStyle axisStroke{{0.56, 0.61, 0.68}, 1};
     Layer grid{plot, {}};
     Layer series{plot, {}};
-    Layer axes;
     for (const auto& tick : x.ticks) {
         const double position = x.scale.map(tick.value);
         addRule(grid, {position, plot.y}, {position, bottom}, gridStroke);
