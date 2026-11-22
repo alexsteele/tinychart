@@ -2,6 +2,8 @@
 
 A lightweight C++20 line-chart library for macOS.
 
+![Sample tinychart plot with two lines and scatter markers](examples/sample.png)
+
 ## Quick example
 
 Link your program to the CMake target `chart`.
