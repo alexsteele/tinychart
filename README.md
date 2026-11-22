@@ -1,10 +1,8 @@
 # tinychart
 
-A lightweight C++20 line-chart library for macOS.
+A C++20 line-chart library for macOS.
 
 ## Example
-
-Link your program to the CMake target `chart`.
 
 ```cpp
 #include <tinychart/macos.hpp>
@@ -21,12 +19,12 @@ int main() {
 }
 ```
 
-![demo chart](examples/sample.png)
+![sample chart](examples/sample.png)
 
 ## Features
 
 - Line and scatter charts with titles, axis labels, and legends.
-- Draws into an AppKit view or exports to PNG.
+- Renders an AppKit view or exports to PNG.
 
 ## How it works
 
@@ -34,7 +32,7 @@ int main() {
 - `buildFrame` lays out the chart and records drawing commands in a `Frame`.
 - `drawFrame` uses Core Graphics to draw the frame.
 
-## Draw in an AppKit view
+## Mac OS AppKit
 
 In an Objective-C++ `NSView`, include `<tinychart/macos.hpp>` and store your chart in an `std::optional<tinychart::Chart>` named `chart_`.
 
@@ -54,7 +52,7 @@ In an Objective-C++ `NSView`, include `<tinychart/macos.hpp>` and store your cha
 
 Set `needsDisplay` when your data changes. If the view redraws frequently, cache the frame and rebuild it when the data or view size changes, as in the [AppKit demo](examples/chart_demo.mm).
 
-## Build and run
+## Install
 
 Requires Apple Command Line Tools, CMake 3.24 or later, and Ninja.
 
