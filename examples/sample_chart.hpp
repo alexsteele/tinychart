@@ -6,9 +6,9 @@
 #include <utility>
 
 inline tinychart::Chart sampleChart() {
-    std::vector<tinychart::Sample> model;
-    std::vector<tinychart::Sample> reference;
-    std::vector<tinychart::Sample> observations;
+    std::vector<tinychart::Point> model;
+    std::vector<tinychart::Point> reference;
+    std::vector<tinychart::Point> observations;
     for (int i = 0; i <= 120; ++i) {
         const double x = i / 10.0;
         const double y = 18 + 4 * std::sin(x) + 0.5 * std::sin(6 * x);

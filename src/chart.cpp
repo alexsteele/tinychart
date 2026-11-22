@@ -31,7 +31,7 @@ void validateDomain(Domain domain) {
     }
 }
 
-bool validSample(Sample sample) {
+bool validSample(Point sample) {
     return std::isfinite(sample.x) && std::isfinite(sample.y);
 }
 
@@ -39,7 +39,7 @@ struct DataBounds {
     Domain x{INFINITY, -INFINITY};
     Domain y{INFINITY, -INFINITY};
 
-    void include(const std::vector<Sample>& samples) {
+    void include(const std::vector<Point>& samples) {
         for (const auto sample : samples) {
             if (validSample(sample)) {
                 x = {std::min(x.min, sample.x), std::max(x.max, sample.x)};
@@ -229,7 +229,7 @@ enum ClipEdge : unsigned { Left = 1, Right = 2, Below = 4, Above = 8 };
 struct ClipBounds {
     Domain x, y;
 
-    unsigned outside(Sample point) const {
+    unsigned outside(Point point) const {
         if (point.x < x.min) {
             return Left | verticalEdges(point);
         }
@@ -240,7 +240,7 @@ struct ClipBounds {
     }
 
 private:
-    unsigned verticalEdges(Sample point) const {
+    unsigned verticalEdges(Point point) const {
         if (point.y < y.min) {
             return Below;
         }
@@ -278,7 +278,7 @@ double interpolateAt(double coordinate, double a, double b, double valueA, doubl
 }
 
 // Clip each segment in data coordinates before mapping it to drawing points.
-bool clipSegment(const ClipBounds& bounds, Sample& a, Sample& b) {
+bool clipSegment(const ClipBounds& bounds, Point& a, Point& b) {
     for (;;) {
         const auto aEdges = bounds.outside(a);
         const auto bEdges = bounds.outside(b);
@@ -351,13 +351,13 @@ void recordScatter(Layer& layer, const ScatterSeries& series, const AxisLayout& 
 
 Chart::Chart(ChartSpec spec) : spec_(std::move(spec)) {}
 
-Chart& Chart::addLine(std::vector<Sample> samples, std::optional<StrokeStyle> stroke) {
+Chart& Chart::addLine(std::vector<Point> samples, std::optional<StrokeStyle> stroke) {
     const StrokeStyle fallback{seriesColor(spec_)};
     spec_.series.push_back({std::move(samples), stroke.value_or(fallback)});
     return *this;
 }
 
-Chart& Chart::addScatter(std::vector<Sample> samples, std::optional<MarkerStyle> marker) {
+Chart& Chart::addScatter(std::vector<Point> samples, std::optional<MarkerStyle> marker) {
     const MarkerStyle fallback{seriesColor(spec_)};
     spec_.scatterSeries.push_back({std::move(samples), marker.value_or(fallback)});
     return *this;
@@ -375,13 +375,13 @@ Chart& Chart::setYDomain(Domain domain) {
     return *this;
 }
 
-Chart lineChart(std::vector<Sample> samples, std::optional<StrokeStyle> stroke) {
+Chart lineChart(std::vector<Point> samples, std::optional<StrokeStyle> stroke) {
     Chart chart(ChartSpec{});
     chart.addLine(std::move(samples), stroke);
     return chart;
 }
 
-Chart scatterPlot(std::vector<Sample> samples, std::optional<MarkerStyle> marker) {
+Chart scatterPlot(std::vector<Point> samples, std::optional<MarkerStyle> marker) {
     Chart chart(ChartSpec{});
     chart.addScatter(std::move(samples), marker);
     return chart;

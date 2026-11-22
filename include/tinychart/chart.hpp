@@ -18,11 +18,11 @@
 
 namespace tinychart {
 
+// Series use data coordinates. Layout and drawing use logical points.
 struct Point { double x, y; };
 struct Size { double width, height; };
 struct Rect { double x, y, width, height; };
 struct Color { double r, g, b, a = 1; };
-struct Sample { double x, y; };
 struct Domain { double min, max; };
 
 struct StrokeStyle {
@@ -46,12 +46,12 @@ struct AxisSpec {
 };
 
 struct LineSeries {
-    std::vector<Sample> samples;
+    std::vector<Point> samples;
     StrokeStyle stroke{{0.15, 0.38, 0.78}};
 };
 
 struct ScatterSeries {
-    std::vector<Sample> samples;
+    std::vector<Point> samples;
     MarkerStyle marker;
 };
 
@@ -65,8 +65,8 @@ class Chart {
 public:
     explicit Chart(ChartSpec spec);
 
-    Chart& addLine(std::vector<Sample> samples, std::optional<StrokeStyle> stroke = {});
-    Chart& addScatter(std::vector<Sample> samples, std::optional<MarkerStyle> marker = {});
+    Chart& addLine(std::vector<Point> samples, std::optional<StrokeStyle> stroke = {});
+    Chart& addScatter(std::vector<Point> samples, std::optional<MarkerStyle> marker = {});
     Chart& setXDomain(Domain domain);
     Chart& setYDomain(Domain domain);
     const ChartSpec& spec() const noexcept { return spec_; }
@@ -75,8 +75,8 @@ private:
     ChartSpec spec_;
 };
 
-Chart lineChart(std::vector<Sample> samples, std::optional<StrokeStyle> stroke = {});
-Chart scatterPlot(std::vector<Sample> samples, std::optional<MarkerStyle> marker = {});
+Chart lineChart(std::vector<Point> samples, std::optional<StrokeStyle> stroke = {});
+Chart scatterPlot(std::vector<Point> samples, std::optional<MarkerStyle> marker = {});
 
 struct LinearScale {
     Domain domain;
