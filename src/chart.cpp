@@ -478,12 +478,10 @@ void recordLine(Layer& layer, const LineSeries& series, const AxisLayout& x, con
         line.points.clear();
     };
 
-    for (std::size_t i = 1; i < series.samples.size(); ++i) {
-        auto a = series.samples[i - 1];
-        auto b = series.samples[i];
-        if (!validSample(a) || !validSample(b) || !clipSegment(bounds, a, b)) {
+    const auto append = [&](Point a, Point b) {
+        if (!clipSegment(bounds, a, b)) {
             flush();
-            continue;
+            return;
         }
 
         const Point first{x.scale.map(a.x), y.scale.map(a.y)};
@@ -493,6 +491,23 @@ void recordLine(Layer& layer, const LineSeries& series, const AxisLayout& x, con
             line.points.push_back(first);
         }
         line.points.push_back(last);
+    };
+
+    for (std::size_t i = 1; i < series.samples.size(); ++i) {
+        const auto a = series.samples[i - 1];
+        const auto b = series.samples[i];
+        if (!validSample(a) || !validSample(b)) {
+            flush();
+            continue;
+        }
+
+        if (series.interpolation == Interpolation::StepAfter && a.x != b.x && a.y != b.y) {
+            const Point corner{b.x, a.y};
+            append(a, corner);
+            append(corner, b);
+        } else {
+            append(a, b);
+        }
     }
     flush();
 }
@@ -519,9 +534,14 @@ Chart& Chart::addLine(std::vector<Point> points) {
     return addLine(LineOptions{.points = std::move(points)});
 }
 
+Chart& Chart::addLine(std::string label, std::vector<Point> points) {
+    return addLine(LineOptions{.label = std::move(label), .points = std::move(points)});
+}
+
 Chart& Chart::addLine(LineOptions line) {
     const StrokeStyle fallback{seriesColor(spec_)};
-    spec_.series.push_back({std::move(line.points), line.stroke.value_or(fallback), std::move(line.title)});
+    spec_.series.push_back({std::move(line.points), line.stroke.value_or(fallback),
+                            std::move(line.label), line.interpolation});
     return *this;
 }
 
@@ -532,7 +552,7 @@ Chart& Chart::addScatter(std::vector<Point> points) {
 Chart& Chart::addScatter(ScatterOptions scatter) {
     const MarkerStyle fallback{seriesColor(spec_)};
     spec_.scatterSeries.push_back({std::move(scatter.points), scatter.marker.value_or(fallback),
-                                   std::move(scatter.title)});
+                                   std::move(scatter.label)});
     return *this;
 }
 
@@ -561,6 +581,14 @@ Chart& Chart::setYDomain(Domain domain) {
     validateDomain(domain);
     spec_.y.domain = domain;
     return *this;
+}
+
+Chart makeChart(ChartOptions options) {
+    ChartSpec spec;
+    spec.title = std::move(options.title);
+    spec.x.caption = std::move(options.xLabel);
+    spec.y.caption = std::move(options.yLabel);
+    return Chart(std::move(spec));
 }
 
 Chart lineChart(std::vector<Point> points) {

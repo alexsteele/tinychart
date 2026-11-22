@@ -2,9 +2,7 @@
 
 A lightweight C++20 line-chart library for macOS.
 
-![Sample price chart with axis labels, two lines, scatter markers, and a legend](examples/sample.png)
-
-## Quick example
+## Example
 
 Link your program to the CMake target `chart`.
 
@@ -12,16 +10,18 @@ Link your program to the CMake target `chart`.
 #include <tinychart/macos.hpp>
 
 int main() {
-    auto plot = tinychart::lineChart({
-        .title = "Model", .points = {{0, 12}, {1, 18}, {2, 15}, {3, 24}}
+    auto plot = tinychart::makeChart({
+        .title = "Price trend",
+        .xLabel = "Time (hours)",
+        .yLabel = "Price (USD)"
     });
-    plot.addScatter({.title = "Observations", .points = {{0.8, 16}, {2.2, 18}}})
-        .setTitle("Price trend").setXLabel("Time (hours)").setYLabel("Price (USD)");
-    tinychart::writePng(plot, "chart.png", {.size = {800, 480}, .scale = 2});
+    plot.addLine("Market price", {{0, 12}, {1, 18}, {2, 15}, {3, 24}});
+    plot.addScatter({.label = "Observations", .points = {{0.8, 16}, {2.2, 18}}});
+    tinychart::writePng(plot, "chart.png");
 }
 ```
 
-Pass points directly to `lineChart`, `scatterPlot`, `addLine`, or `addScatter`. Use `.title` to add a series to the legend.
+![demo chart](examples/sample.png)
 
 ## Features
 

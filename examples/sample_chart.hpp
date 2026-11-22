@@ -18,13 +18,15 @@ inline tinychart::Chart sampleChart() {
             observations.push_back({x, y + 0.2 * std::cos(3 * x)});
         }
     }
-    auto chart = tinychart::lineChart({.title = "Model", .points = std::move(model)});
-    chart.addLine({.title = "Reference", .points = std::move(reference)})
-        .addScatter({.title = "Observations", .points = std::move(observations),
+    auto chart = tinychart::makeChart({
+        .title = "Sample price trends",
+        .xLabel = "Time (hours)",
+        .yLabel = "Price (USD)"
+    });
+    chart.addLine("Model", std::move(model))
+        .addLine("Reference", std::move(reference))
+        .addScatter({.label = "Observations", .points = std::move(observations),
                      .marker = tinychart::MarkerStyle{{0.09, 0.28, 0.62}, 3.5}})
-        .setTitle("Sample price trends")
-        .setXLabel("Time (hours)")
-        .setYLabel("Price (USD)")
         .setXDomain({0, 12})
         .setYDomain({12, 24});
     return chart;

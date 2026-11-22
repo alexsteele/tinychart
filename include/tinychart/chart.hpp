@@ -48,10 +48,16 @@ struct AxisSpec {
     std::string caption{};
 };
 
+enum class Interpolation {
+    Linear,
+    StepAfter,  // Hold the previous y value until the next x.
+};
+
 struct LineSeries {
     std::vector<Point> samples;
     StrokeStyle stroke{{0.15, 0.38, 0.78}};
     std::string name;
+    Interpolation interpolation = Interpolation::Linear;
 };
 
 struct ScatterSeries {
@@ -68,15 +74,22 @@ struct ChartSpec {
 };
 
 struct LineOptions {
-    std::string title;
+    std::string label;
     std::vector<Point> points;
     std::optional<StrokeStyle> stroke;
+    Interpolation interpolation = Interpolation::Linear;
 };
 
 struct ScatterOptions {
-    std::string title;
+    std::string label;
     std::vector<Point> points;
     std::optional<MarkerStyle> marker;
+};
+
+struct ChartOptions {
+    std::string title;
+    std::string xLabel;
+    std::string yLabel;
 };
 
 class Chart {
@@ -87,6 +100,7 @@ public:
     Chart& addLine(std::initializer_list<Point> points) {
         return addLine(std::vector<Point>(points));
     }
+    Chart& addLine(std::string label, std::vector<Point> points);
     Chart& addLine(LineOptions line);
     Chart& addScatter(std::vector<Point> points);
     Chart& addScatter(std::initializer_list<Point> points) {
@@ -104,6 +118,7 @@ private:
     ChartSpec spec_;
 };
 
+Chart makeChart(ChartOptions options);
 Chart lineChart(std::vector<Point> points);
 inline Chart lineChart(std::initializer_list<Point> points) {
     return lineChart(std::vector<Point>(points));
