@@ -1,7 +1,6 @@
 #pragma once
 
-// tinychart lays out line and scatter plots in logical points.
-// For an AppKit view or a PNG on macOS, include <tinychart/macos.hpp>:
+// tinychart is a small chart library that renders to MacOS AppKit or PNG.
 //
 //   auto chart = tinychart::lineChart({{0, 12}, {1, 18}, {2, 15}});
 //   tinychart::MacTextShaper text;
