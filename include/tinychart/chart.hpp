@@ -70,12 +70,19 @@ struct ScatterSeries {
     std::string name;
 };
 
+struct BarSeries {
+    std::vector<double> values;
+    Color color{0.15, 0.38, 0.78};
+    std::string name;
+};
+
 struct ChartSpec {
     AxisSpec x, y;
     std::vector<LineSeries> series;
     std::vector<ScatterSeries> scatterSeries{};
     std::string title{};
     Theme theme = Theme::Light;
+    std::vector<BarSeries> barSeries{};
 };
 
 struct LineOptions {
@@ -120,6 +127,9 @@ public:
         return addScatter(std::vector<Point>(points));
     }
     Chart& addScatter(ScatterOptions scatter);
+    // Values occupy consecutive slots starting at x = 0.
+    Chart& addBars(std::vector<double> values);
+    Chart& addBars(std::string label, std::vector<double> values);
     Chart& setTitle(std::string title);
     Chart& setXLabel(std::string caption);
     Chart& setYLabel(std::string caption);
@@ -142,6 +152,7 @@ inline Chart scatterPlot(std::initializer_list<Point> points) {
     return scatterPlot(std::vector<Point>(points));
 }
 Chart scatterPlot(ScatterOptions scatter);
+Chart barChart(std::vector<double> values);
 
 struct LinearScale {
     Domain domain;
@@ -219,10 +230,12 @@ struct Frame {
 
 private:
     struct HitSample { Point data, position; };
+    struct HitBar { HitSample sample; Rect bounds; };
     struct HitSeries {
         std::string label;
         Color color;
         std::vector<HitSample> samples;
+        std::vector<HitBar> bars;
     };
 
     Theme theme_ = Theme::Light;

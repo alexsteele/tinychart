@@ -41,7 +41,7 @@ const Palette& paletteFor(Theme theme) {
 
 Color seriesColor(const ChartSpec& spec) {
     const auto& colors = paletteFor(spec.theme).series;
-    return colors[(spec.series.size() + spec.scatterSeries.size()) % colors.size()];
+    return colors[(spec.series.size() + spec.scatterSeries.size() + spec.barSeries.size()) % colors.size()];
 }
 
 TextStyle tickStyle(TextStyle style, const Palette& palette) {
@@ -82,6 +82,20 @@ struct DataBounds {
             }
         }
     }
+
+    void includeBars(const std::vector<double>& values) {
+        if (values.empty()) {
+            return;
+        }
+        x.min = std::min(x.min, -0.5);
+        x.max = std::max(x.max, static_cast<double>(values.size()) - 0.5);
+        for (const double value : values) {
+            if (std::isfinite(value)) {
+                y.min = std::min({y.min, value, 0.0});
+                y.max = std::max({y.max, value, 0.0});
+            }
+        }
+    }
 };
 
 // Keep degenerate data centered whenever the numeric range allows it.
@@ -107,11 +121,12 @@ double fraction(Domain domain, double value) {
     return (value / 2 - domain.min / 2) / (domain.max / 2 - domain.min / 2);
 }
 
-std::vector<double> tickValues(Domain domain, int desired) {
-    const double rough = (domain.max - domain.min) / desired;
-    if (!positive(rough)) {
+std::vector<double> tickValues(Domain domain, int desired, bool wholeNumbers) {
+    const double interval = (domain.max - domain.min) / desired;
+    if (!positive(interval)) {
         return {domain.min, domain.max};
     }
+    const double rough = wholeNumbers ? std::max(1.0, interval) : interval;
     const double magnitude = std::pow(10.0, std::floor(std::log10(rough)));
     if (!positive(magnitude)) {
         return {domain.min, domain.max};
@@ -119,6 +134,9 @@ std::vector<double> tickValues(Domain domain, int desired) {
     const double unit = rough / magnitude;
     double factor = 10;
     for (const double candidate : {1.0, 2.0, 2.5, 5.0}) {
+        if (wholeNumbers && magnitude == 1 && candidate == 2.5) {
+            continue;
+        }
         if (unit <= candidate) {
             factor = candidate;
             break;
@@ -136,7 +154,11 @@ std::vector<double> tickValues(Domain domain, int desired) {
             ticks.push_back(value == 0 ? 0 : value);
         }
     }
-    if (ticks.size() < 2) {
+    // A one-slot bar chart only needs its center tick.
+    if (wholeNumbers && ticks.empty()) {
+        return tickValues(domain, desired, false);
+    }
+    if (!wholeNumbers && ticks.size() < 2) {
         return {domain.min, domain.max};
     }
     return ticks;
@@ -150,9 +172,10 @@ std::string formatTick(double value, int precision) {
     return text.str();
 }
 
-AxisLayout makeAxis(LinearScale scale, int density, const TextStyle& style, TextShaper& text) {
+AxisLayout makeAxis(LinearScale scale, int density, const TextStyle& style, TextShaper& text,
+                    bool wholeNumbers = false) {
     AxisLayout axis{.scale = scale};
-    const auto values = tickValues(scale.domain, density);
+    const auto values = tickValues(scale.domain, density, wholeNumbers);
     std::vector<std::string> labels;
     for (const int precision : {6, 10, 14, std::numeric_limits<double>::max_digits10}) {
         labels.clear();
@@ -244,7 +267,7 @@ constexpr double legendRowGap = 5;
 
 struct LegendItem {
     Label label;
-    std::variant<StrokeStyle, MarkerStyle> swatch;
+    std::variant<StrokeStyle, MarkerStyle, Color> swatch;
 
     double width() const { return swatchWidth + swatchGap + label.metrics.advance; }
 };
@@ -278,6 +301,9 @@ std::vector<LegendRow> makeLegend(const ChartSpec& spec, TextShaper& text, doubl
     for (const auto& scatter : spec.scatterSeries) {
         append(scatter.name, MarkerStyle{scatter.marker.color, std::min(scatter.marker.radius, 4.0)});
     }
+    for (const auto& bars : spec.barSeries) {
+        append(bars.name, bars.color);
+    }
     return rows;
 }
 
@@ -290,9 +316,12 @@ void recordLegend(Layer& layer, const std::vector<LegendRow>& rows, double width
             if (const auto* stroke = std::get_if<StrokeStyle>(&item.swatch)) {
                 layer.commands.emplace_back(StrokePolyline{
                     {{left, centerY}, {left + swatchWidth, centerY}}, *stroke});
-            } else {
+            } else if (const auto* marker = std::get_if<MarkerStyle>(&item.swatch)) {
                 layer.commands.emplace_back(FillCircles{
-                    {{left + swatchWidth / 2, centerY}}, std::get<MarkerStyle>(item.swatch)});
+                    {{left + swatchWidth / 2, centerY}}, *marker});
+            } else {
+                layer.commands.emplace_back(FillRect{
+                    {left + swatchWidth / 2 - 4, centerY - 4, 8, 8}, std::get<Color>(item.swatch)});
             }
             const auto metrics = item.label.metrics;
             const Point baseline{left + swatchWidth + swatchGap,
@@ -316,6 +345,9 @@ ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text, Layer
     }
     for (const auto& series : spec.scatterSeries) {
         bounds.include(series.samples);
+    }
+    for (const auto& series : spec.barSeries) {
+        bounds.includeBars(series.values);
     }
     const Domain xDomain = spec.x.domain.value_or(padded(bounds.x));
     const Domain yDomain = spec.y.domain.value_or(padded(bounds.y));
@@ -344,7 +376,7 @@ ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text, Layer
     const double left = padding + beside + yWidth + labelGap;
     auto x = makeAxis({xDomain, 0, 1},
                       static_cast<int>(std::clamp((size.width - left) / 85, 2.0, 12.0)),
-                      tickStyle(spec.x.labels, palette), text);
+                      tickStyle(spec.x.labels, palette), text, !spec.barSeries.empty());
     double xHeight = 0;
     double xPadding = 0;
     for (const auto& tick : x.ticks) {
@@ -566,6 +598,25 @@ void recordScatter(Layer& layer, const ScatterSeries& series, const AxisLayout& 
     }
 }
 
+std::optional<Rect> visibleBar(Point sample, const LinearScale& x, const LinearScale& y) {
+    constexpr double halfWidth = 0.375;
+    const double left = std::max(sample.x - halfWidth, x.domain.min);
+    const double right = std::min(sample.x + halfWidth, x.domain.max);
+    const double low = std::max(std::min(0.0, sample.y), y.domain.min);
+    const double high = std::min(std::max(0.0, sample.y), y.domain.max);
+    if (left >= right || low >= high) {
+        return std::nullopt;
+    }
+    const double x0 = x.map(left);
+    const double y0 = y.map(high);
+    const double width = x.map(right) - x0;
+    const double height = y.map(low) - y0;
+    if (!positive(width) || !positive(height)) {
+        return std::nullopt;
+    }
+    return Rect{x0, y0, width, height};
+}
+
 void recordTooltip(Layer& layer, const ChartLayout& layout, const PointHit& hit,
                    const Palette& palette, TextShaper& text) {
     constexpr double inset = 4;
@@ -642,6 +693,16 @@ Chart& Chart::addScatter(ScatterOptions scatter) {
     return *this;
 }
 
+Chart& Chart::addBars(std::vector<double> values) {
+    return addBars({}, std::move(values));
+}
+
+Chart& Chart::addBars(std::string label, std::vector<double> values) {
+    const auto color = seriesColor(spec_);
+    spec_.barSeries.push_back({std::move(values), color, std::move(label)});
+    return *this;
+}
+
 Chart& Chart::setTitle(std::string title) {
     spec_.title = std::move(title);
     return *this;
@@ -695,6 +756,12 @@ Chart scatterPlot(std::vector<Point> points) {
 Chart scatterPlot(ScatterOptions scatter) {
     Chart chart(ChartSpec{});
     chart.addScatter(std::move(scatter));
+    return chart;
+}
+
+Chart barChart(std::vector<double> values) {
+    Chart chart(ChartSpec{});
+    chart.addBars(std::move(values));
     return chart;
 }
 
@@ -767,9 +834,33 @@ Frame buildFrame(const ChartSpec& spec, Size viewport, TextShaper& text) {
         addRule(grid, {plot.x, position}, {right, position}, gridStroke);
         axes.commands.emplace_back(DrawText{tick.baseline, tick.label, yLabelColor});
     }
+    if (!spec.barSeries.empty() && y.scale.domain.min < 0 && y.scale.domain.max > 0) {
+        const double zero = y.scale.map(0);
+        addRule(grid, {plot.x, zero}, {right, zero}, axisStroke);
+    }
+    for (const auto& bars : spec.barSeries) {
+        Frame::HitSeries hits{bars.name.empty() ? "Bar series" : bars.name, bars.color, {}, {}};
+        for (std::size_t i = 0; i < bars.values.size(); ++i) {
+            const Point sample{static_cast<double>(i), bars.values[i]};
+            if (!validSample(sample)) {
+                continue;
+            }
+            const auto rect = visibleBar(sample, x.scale, y.scale);
+            if (!rect) {
+                continue;
+            }
+            series.commands.emplace_back(FillRect{*rect, bars.color});
+            const Point position{x.scale.map(std::clamp(sample.x, x.scale.domain.min, x.scale.domain.max)),
+                                 y.scale.map(std::clamp(sample.y, y.scale.domain.min, y.scale.domain.max))};
+            hits.bars.push_back({{sample, position}, *rect});
+        }
+        if (!hits.bars.empty()) {
+            frame.hits_.push_back(std::move(hits));
+        }
+    }
     const auto recordHits = [&](const std::vector<Point>& samples, std::string_view label, Color color,
                                 bool requiresSegment) {
-        Frame::HitSeries hits{std::string(label), color, {}};
+        Frame::HitSeries hits{std::string(label), color, {}, {}};
         for (std::size_t i = 0; i < samples.size(); ++i) {
             const auto sample = samples[i];
             if (!validSample(sample)) {
@@ -817,14 +908,21 @@ std::optional<PointHit> Frame::nearestPoint(Point cursor, double radius) const {
 
     const HitSeries* nearestSeries = nullptr;
     const HitSample* nearestSample = nullptr;
+    const auto consider = [&](const HitSeries& series, const HitSample& sample, bool insideBar) {
+        const double distance = insideBar ? 0 : std::hypot(sample.position.x - cursor.x,
+                                                           sample.position.y - cursor.y);
+        if (distance <= radius) {
+            nearestSeries = &series;
+            nearestSample = &sample;
+            radius = distance;
+        }
+    };
     for (const auto& series : hits_) {
         for (const auto& sample : series.samples) {
-            const double distance = std::hypot(sample.position.x - cursor.x, sample.position.y - cursor.y);
-            if (distance <= radius) {
-                nearestSeries = &series;
-                nearestSample = &sample;
-                radius = distance;
-            }
+            consider(series, sample, false);
+        }
+        for (const auto& bar : series.bars) {
+            consider(series, bar.sample, contains(bar.bounds, cursor));
         }
     }
     if (!nearestSample) {

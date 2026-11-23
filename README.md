@@ -23,12 +23,12 @@ int main() {
 
 ## Features
 
-- Line and scatter charts with titles, axis labels, legends, light and dark themes, and hover tooltips.
+- Line, scatter, and bar charts with titles, axis labels, legends, light and dark themes, and hover tooltips.
 - Renders an AppKit view or exports to PNG.
 
 ## How it works
 
-- `lineChart` and `scatterPlot` build a `ChartSpec` from samples and styles.
+- `lineChart`, `scatterPlot`, and `barChart` build a `ChartSpec` from data.
 - `buildFrame` lays out the chart and records drawing commands in a `Frame`.
 - `drawFrame` uses Core Graphics to draw the frame.
 
