@@ -14,12 +14,41 @@
 namespace tinychart {
 namespace {
 
-constexpr std::array<Color, 4> palette{{
-    {0.15, 0.38, 0.78}, {0.80, 0.27, 0.24}, {0.12, 0.52, 0.42}, {0.53, 0.29, 0.73}
-}};
+struct Palette {
+    Color background, grid, axis, title, caption, muted, crosshair, tooltip, tooltipBorder;
+    std::array<Color, 4> series;
+};
+
+constexpr Palette light{
+    .background = {1, 1, 1}, .grid = {0.89, 0.91, 0.94}, .axis = {0.56, 0.61, 0.68},
+    .title = {0.12, 0.16, 0.22}, .caption = {0.20, 0.24, 0.30}, .muted = TextStyle{}.color,
+    .crosshair = {0.20, 0.24, 0.30, 0.48}, .tooltip = {0.98, 0.99, 1},
+    .tooltipBorder = {0.73, 0.77, 0.83},
+    .series = {{{0.15, 0.38, 0.78}, {0.80, 0.27, 0.24}, {0.12, 0.52, 0.42}, {0.53, 0.29, 0.73}}}
+};
+
+constexpr Palette marketDark{
+    .background = {0.06, 0.09, 0.13}, .grid = {0.14, 0.20, 0.27}, .axis = {0.32, 0.39, 0.49},
+    .title = {0.92, 0.95, 0.99}, .caption = {0.76, 0.82, 0.90}, .muted = {0.61, 0.69, 0.80},
+    .crosshair = {0.62, 0.73, 0.87, 0.64}, .tooltip = {0.10, 0.15, 0.21},
+    .tooltipBorder = {0.32, 0.43, 0.55},
+    .series = {{{0.36, 0.63, 1}, {1, 0.68, 0.35}, {0.28, 0.86, 0.72}, {0.77, 0.63, 1}}}
+};
+
+const Palette& paletteFor(Theme theme) {
+    return theme == Theme::MarketDark ? marketDark : light;
+}
 
 Color seriesColor(const ChartSpec& spec) {
-    return palette[(spec.series.size() + spec.scatterSeries.size()) % palette.size()];
+    const auto& colors = paletteFor(spec.theme).series;
+    return colors[(spec.series.size() + spec.scatterSeries.size()) % colors.size()];
+}
+
+TextStyle tickStyle(TextStyle style, const Palette& palette) {
+    if (style.color == TextStyle{}.color) {
+        style.color = palette.muted;
+    }
+    return style;
 }
 
 bool positive(double value) {
@@ -34,6 +63,11 @@ void validateDomain(Domain domain) {
 
 bool validSample(Point sample) {
     return std::isfinite(sample.x) && std::isfinite(sample.y);
+}
+
+bool contains(Rect rect, Point point) {
+    return point.x >= rect.x && point.x <= rect.x + rect.width &&
+           point.y >= rect.y && point.y <= rect.y + rect.height;
 }
 
 struct DataBounds {
@@ -117,7 +151,7 @@ std::string formatTick(double value, int precision) {
 }
 
 AxisLayout makeAxis(LinearScale scale, int density, const TextStyle& style, TextShaper& text) {
-    AxisLayout axis{scale, {}};
+    AxisLayout axis{.scale = scale};
     const auto values = tickValues(scale.domain, density);
     std::vector<std::string> labels;
     for (const int precision : {6, 10, 14, std::numeric_limits<double>::max_digits10}) {
@@ -156,9 +190,6 @@ void removeOverlappingLabels(AxisLayout& axis, bool horizontal) {
 
 constexpr double padding = 10;
 constexpr double labelGap = 8;
-constexpr TextStyle titleStyle{20, {0.12, 0.16, 0.22}};
-constexpr TextStyle captionStyle{13, {0.20, 0.24, 0.30}};
-constexpr TextStyle legendStyle{};
 
 struct Label {
     std::shared_ptr<const ShapedLine> line;
@@ -224,10 +255,11 @@ struct LegendRow {
     double height = 0;
 };
 
-std::vector<LegendRow> makeLegend(const ChartSpec& spec, TextShaper& text, double width) {
+std::vector<LegendRow> makeLegend(const ChartSpec& spec, TextShaper& text, double width,
+                                  TextStyle style) {
     std::vector<LegendRow> rows;
     const auto append = [&](std::string_view name, auto swatch) {
-        auto label = fitLabel(name, legendStyle, text, width - swatchWidth - swatchGap);
+        auto label = fitLabel(name, style, text, width - swatchWidth - swatchGap);
         if (!label) {
             return;
         }
@@ -249,7 +281,8 @@ std::vector<LegendRow> makeLegend(const ChartSpec& spec, TextShaper& text, doubl
     return rows;
 }
 
-void recordLegend(Layer& layer, const std::vector<LegendRow>& rows, double width, double top) {
+void recordLegend(Layer& layer, const std::vector<LegendRow>& rows, double width, double top,
+                  Color color) {
     for (const auto& row : rows) {
         double left = (width - row.width) / 2;
         const double centerY = top + row.height / 2;
@@ -264,7 +297,7 @@ void recordLegend(Layer& layer, const std::vector<LegendRow>& rows, double width
             const auto metrics = item.label.metrics;
             const Point baseline{left + swatchWidth + swatchGap,
                                  centerY + (metrics.ascent - metrics.descent) / 2};
-            layer.commands.emplace_back(DrawText{baseline, item.label.line, legendStyle.color});
+            layer.commands.emplace_back(DrawText{baseline, item.label.line, color});
             left += item.width() + legendItemGap;
         }
         top += row.height + legendRowGap;
@@ -287,6 +320,10 @@ ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text, Layer
     const Domain xDomain = spec.x.domain.value_or(padded(bounds.x));
     const Domain yDomain = spec.y.domain.value_or(padded(bounds.y));
 
+    const auto& palette = paletteFor(spec.theme);
+    const TextStyle titleStyle{20, palette.title};
+    const TextStyle captionStyle{13, palette.caption};
+    const TextStyle legendStyle{12, palette.muted};
     const auto title = decorate ? fitLabel(spec.title, titleStyle, text, size.width - 2 * padding)
                                 : Label{};
     const auto yCaption = decorate ? fitLabel(spec.y.caption, captionStyle, text, size.height)
@@ -295,7 +332,7 @@ ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text, Layer
     const double beside = yCaption ? yCaption.height() + labelGap : 0;
     auto y = makeAxis({yDomain, 0, 1},
                       static_cast<int>(std::clamp((size.height - above) / 55, 2.0, 10.0)),
-                      spec.y.labels, text);
+                      tickStyle(spec.y.labels, palette), text);
     double yWidth = 0;
     double yPadding = 0;
     for (const auto& tick : y.ticks) {
@@ -307,7 +344,7 @@ ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text, Layer
     const double left = padding + beside + yWidth + labelGap;
     auto x = makeAxis({xDomain, 0, 1},
                       static_cast<int>(std::clamp((size.width - left) / 85, 2.0, 12.0)),
-                      spec.x.labels, text);
+                      tickStyle(spec.x.labels, palette), text);
     double xHeight = 0;
     double xPadding = 0;
     for (const auto& tick : x.ticks) {
@@ -331,7 +368,7 @@ ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text, Layer
     }
 
     if (decorate) {
-        const auto legend = makeLegend(spec, text, size.width - 2 * padding);
+        const auto legend = makeLegend(spec, text, size.width - 2 * padding, legendStyle);
         double legendSpace = 0;
         for (const auto& row : legend) {
             legendSpace += row.height + legendRowGap;
@@ -340,7 +377,8 @@ ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text, Layer
             const double legendHeight = legendSpace - legendRowGap;
             if (bottom - top >= legendHeight + labelGap + 24) {
                 bottom -= legendHeight + labelGap;
-                recordLegend(annotations, legend, size.width, size.height - padding - legendHeight);
+                recordLegend(annotations, legend, size.width, size.height - padding - legendHeight,
+                             legendStyle.color);
             }
         }
     }
@@ -369,6 +407,8 @@ ChartLayout makeLayout(const ChartSpec& spec, Size size, TextShaper& text, Layer
     x.scale.end = right;
     y.scale.start = bottom;
     y.scale.end = top;
+    x.caption = spec.x.caption;
+    y.caption = spec.y.caption;
     for (auto& tick : x.ticks) {
         const auto metrics = tick.label->metrics();
         tick.baseline = {x.scale.map(tick.value) - metrics.advance / 2,
@@ -526,6 +566,52 @@ void recordScatter(Layer& layer, const ScatterSeries& series, const AxisLayout& 
     }
 }
 
+void recordTooltip(Layer& layer, const ChartLayout& layout, const PointHit& hit,
+                   const Palette& palette, TextShaper& text) {
+    constexpr double inset = 4;
+    constexpr double pad = 9;
+    constexpr double gap = 3;
+    constexpr double offset = 12;
+    const auto plot = layout.plot;
+    const double textWidth = std::min(240.0, plot.width - 2 * inset) - 2 * pad;
+    const TextStyle headingStyle{12, palette.title};
+    const TextStyle valueStyle{11, palette.caption};
+    const auto heading = fitLabel(hit.label, headingStyle, text, textWidth);
+    const auto valueLabel = [&](const AxisLayout& axis, std::string_view axisName, double value) {
+        const auto caption = axis.caption.empty() ? axisName : std::string_view(axis.caption);
+        return fitLabel(std::string(caption) + "  " + formatTick(value, 7), valueStyle, text, textWidth);
+    };
+    const auto xLabel = valueLabel(*layout.x, "x", hit.data.x);
+    const auto yLabel = valueLabel(*layout.y, "y", hit.data.y);
+    if (!heading || !xLabel || !yLabel) {
+        return;
+    }
+
+    const double width = std::max({heading.metrics.advance, xLabel.metrics.advance,
+                                   yLabel.metrics.advance}) + 2 * pad;
+    const double height = heading.height() + xLabel.height() + yLabel.height() + 2 * gap + 2 * pad;
+    if (height > plot.height - 2 * inset) {
+        return;
+    }
+
+    const double right = plot.x + plot.width - inset;
+    const double bottom = plot.y + plot.height - inset;
+    const auto [x, y] = hit.position;
+    const double left = std::clamp(x + offset + width <= right ? x + offset : x - offset - width,
+                                   plot.x + inset, right - width);
+    const double top = std::clamp(y - offset - height >= plot.y + inset ? y - offset - height : y + offset,
+                                  plot.y + inset, bottom - height);
+    layer.commands.emplace_back(FillRect{{left, top, width, height}, palette.tooltipBorder});
+    layer.commands.emplace_back(FillRect{{left + 1, top + 1, width - 2, height - 2}, palette.tooltip});
+    layer.commands.emplace_back(DrawText{{left + pad, top + pad + heading.metrics.ascent},
+                                         heading.line, headingStyle.color});
+    const double valueTop = top + pad + heading.height() + gap;
+    layer.commands.emplace_back(DrawText{{left + pad, valueTop + xLabel.metrics.ascent},
+                                         xLabel.line, valueStyle.color});
+    layer.commands.emplace_back(DrawText{{left + pad, valueTop + xLabel.height() + gap + yLabel.metrics.ascent},
+                                         yLabel.line, valueStyle.color});
+}
+
 }  // namespace
 
 Chart::Chart(ChartSpec spec) : spec_(std::move(spec)) {}
@@ -588,6 +674,7 @@ Chart makeChart(ChartOptions options) {
     spec.title = std::move(options.title);
     spec.x.caption = std::move(options.xLabel);
     spec.y.caption = std::move(options.yLabel);
+    spec.theme = options.theme;
     return Chart(std::move(spec));
 }
 
@@ -623,6 +710,9 @@ double LinearScale::invert(double position) const {
     return std::lerp(domain.min, domain.max, (position - start) / (end - start));
 }
 
+Frame::Frame(Size viewport, ChartLayout layout, std::vector<Layer> layers)
+    : viewport(viewport), layout(std::move(layout)), layers(std::move(layers)) {}
+
 Frame buildFrame(const ChartSpec& spec, Size viewport, TextShaper& text) {
     if (!positive(viewport.width) || !positive(viewport.height)) {
         throw std::invalid_argument("Viewport must have finite, positive dimensions");
@@ -647,9 +737,11 @@ Frame buildFrame(const ChartSpec& spec, Size viewport, TextShaper& text) {
         }
     }
 
+    const auto& palette = paletteFor(spec.theme);
     Layer axes;
     Frame frame{viewport, makeLayout(spec, viewport, text, axes), {}};
-    frame.layers.push_back({{}, {FillRect{{0, 0, viewport.width, viewport.height}, {1, 1, 1}}}});
+    frame.theme_ = spec.theme;
+    frame.layers.push_back({{}, {FillRect{{0, 0, viewport.width, viewport.height}, palette.background}}});
     if (!frame.layout.x || !frame.layout.y) {
         return frame;
     }
@@ -659,25 +751,55 @@ Frame buildFrame(const ChartSpec& spec, Size viewport, TextShaper& text) {
     const auto& y = *frame.layout.y;
     const double right = plot.x + plot.width;
     const double bottom = plot.y + plot.height;
-    const StrokeStyle gridStroke{{0.89, 0.91, 0.94}, 1};
-    const StrokeStyle axisStroke{{0.56, 0.61, 0.68}, 1};
+    const StrokeStyle gridStroke{palette.grid, 1};
+    const StrokeStyle axisStroke{palette.axis, 1};
+    const auto xLabelColor = tickStyle(spec.x.labels, palette).color;
+    const auto yLabelColor = tickStyle(spec.y.labels, palette).color;
     Layer grid{plot, {}};
     Layer series{plot, {}};
     for (const auto& tick : x.ticks) {
         const double position = x.scale.map(tick.value);
         addRule(grid, {position, plot.y}, {position, bottom}, gridStroke);
-        axes.commands.emplace_back(DrawText{tick.baseline, tick.label, spec.x.labels.color});
+        axes.commands.emplace_back(DrawText{tick.baseline, tick.label, xLabelColor});
     }
     for (const auto& tick : y.ticks) {
         const double position = y.scale.map(tick.value);
         addRule(grid, {plot.x, position}, {right, position}, gridStroke);
-        axes.commands.emplace_back(DrawText{tick.baseline, tick.label, spec.y.labels.color});
+        axes.commands.emplace_back(DrawText{tick.baseline, tick.label, yLabelColor});
     }
+    const auto recordHits = [&](const std::vector<Point>& samples, std::string_view label, Color color,
+                                bool requiresSegment) {
+        Frame::HitSeries hits{std::string(label), color, {}};
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            const auto sample = samples[i];
+            if (!validSample(sample)) {
+                continue;
+            }
+            if (requiresSegment) {
+                const bool hasPrevious = i > 0 && validSample(samples[i - 1]);
+                const bool hasNext = i + 1 < samples.size() && validSample(samples[i + 1]);
+                if (!hasPrevious && !hasNext) {
+                    continue;
+                }
+            }
+            const Point position{x.scale.map(sample.x), y.scale.map(sample.y)};
+            if (contains(plot, position)) {
+                hits.samples.push_back({sample, position});
+            }
+        }
+        if (!hits.samples.empty()) {
+            frame.hits_.push_back(std::move(hits));
+        }
+    };
     for (const auto& line : spec.series) {
         recordLine(series, line, x, y);
+        recordHits(line.samples, line.name.empty() ? std::string_view("Line series") : line.name,
+                   line.stroke.color, true);
     }
     for (const auto& scatter : spec.scatterSeries) {
         recordScatter(series, scatter, x, y);
+        recordHits(scatter.samples, scatter.name.empty() ? std::string_view("Scatter series") : scatter.name,
+                   scatter.marker.color, false);
     }
     addRule(axes, {plot.x, plot.y}, {plot.x, bottom}, axisStroke);
     addRule(axes, {plot.x, bottom}, {right, bottom}, axisStroke);
@@ -685,6 +807,51 @@ Frame buildFrame(const ChartSpec& spec, Size viewport, TextShaper& text) {
     frame.layers.push_back(std::move(series));
     frame.layers.push_back(std::move(axes));
     return frame;
+}
+
+std::optional<PointHit> Frame::nearestPoint(Point cursor, double radius) const {
+    if (!layout.x || !layout.y || !contains(layout.plot, cursor) ||
+        !std::isfinite(radius) || radius < 0) {
+        return std::nullopt;
+    }
+
+    const HitSeries* nearestSeries = nullptr;
+    const HitSample* nearestSample = nullptr;
+    for (const auto& series : hits_) {
+        for (const auto& sample : series.samples) {
+            const double distance = std::hypot(sample.position.x - cursor.x, sample.position.y - cursor.y);
+            if (distance <= radius) {
+                nearestSeries = &series;
+                nearestSample = &sample;
+                radius = distance;
+            }
+        }
+    }
+    if (!nearestSample) {
+        return std::nullopt;
+    }
+    return PointHit{nearestSample->data, nearestSample->position, nearestSeries->color, nearestSeries->label};
+}
+
+Layer Frame::hoverOverlay(Point cursor, TextShaper& text) const {
+    const auto plot = layout.plot;
+    if (!layout.x || !layout.y || !contains(plot, cursor)) {
+        return {};
+    }
+
+    const auto& palette = paletteFor(theme_);
+    const auto hit = nearestPoint(cursor, 12);
+    const auto point = hit ? hit->position : cursor;
+    Layer overlay{plot, {}};
+    const StrokeStyle crosshair{palette.crosshair, 1};
+    addRule(overlay, {point.x, plot.y}, {point.x, plot.y + plot.height}, crosshair);
+    addRule(overlay, {plot.x, point.y}, {plot.x + plot.width, point.y}, crosshair);
+    if (hit) {
+        overlay.commands.emplace_back(FillCircles{{point}, {palette.background, 5}});
+        overlay.commands.emplace_back(FillCircles{{point}, {hit->color, 3.5}});
+        recordTooltip(overlay, layout, *hit, palette, text);
+    }
+    return overlay;
 }
 
 }  // namespace tinychart

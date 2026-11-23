@@ -4,10 +4,16 @@
 #include <exception>
 #include <iostream>
 #include <string>
+#include <string_view>
 
 int main(int argc, char** argv) {
+    auto theme = tinychart::Theme::Light;
+    if (argc > 1 && std::string_view(argv[argc - 1]) == "--dark") {
+        theme = tinychart::Theme::MarketDark;
+        --argc;
+    }
     if (argc < 2 || argc > 3) {
-        std::cerr << "Usage: render_chart OUTPUT.png [SCALE]\n";
+        std::cerr << "Usage: render_chart OUTPUT.png [SCALE] [--dark]\n";
         return 2;
     }
     try {
@@ -21,7 +27,7 @@ int main(int argc, char** argv) {
                 return 2;
             }
         }
-        tinychart::writePng(sampleChart(), argv[1], options);
+        tinychart::writePng(sampleChart(theme), argv[1], options);
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

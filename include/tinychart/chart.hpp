@@ -23,8 +23,13 @@ namespace tinychart {
 struct Point { double x, y; };
 struct Size { double width, height; };
 struct Rect { double x, y, width, height; };
-struct Color { double r, g, b, a = 1; };
+struct Color {
+    double r, g, b, a = 1;
+    bool operator==(const Color&) const = default;
+};
 struct Domain { double min, max; };
+
+enum class Theme { Light, MarketDark };
 
 struct StrokeStyle {
     Color color;
@@ -70,6 +75,7 @@ struct ChartSpec {
     std::vector<LineSeries> series;
     std::vector<ScatterSeries> scatterSeries{};
     std::string title{};
+    Theme theme = Theme::Light;
 };
 
 struct LineOptions {
@@ -89,6 +95,14 @@ struct ChartOptions {
     std::string title;
     std::string xLabel;
     std::string yLabel;
+    Theme theme = Theme::Light;
+};
+
+struct PointHit {
+    Point data;
+    Point position;
+    Color color;
+    std::string label;
 };
 
 class Chart {
@@ -163,6 +177,7 @@ struct Tick {
 struct AxisLayout {
     LinearScale scale;
     std::vector<Tick> ticks;
+    std::string caption;
 };
 
 struct ChartLayout {
@@ -189,9 +204,31 @@ struct Layer {
 };
 
 struct Frame {
-    Size viewport;
-    ChartLayout layout;
+    Frame() = default;
+    Frame(Size viewport, ChartLayout layout, std::vector<Layer> layers);
+
+    Size viewport{};
+    ChartLayout layout{};
     std::vector<Layer> layers;
+
+    // Cursor and radius use logical points in this frame.
+    std::optional<PointHit> nearestPoint(Point cursor, double radius) const;
+
+    // Draws a crosshair and an optional tooltip. Empty when the cursor is outside the plot.
+    Layer hoverOverlay(Point cursor, TextShaper& text) const;
+
+private:
+    struct HitSample { Point data, position; };
+    struct HitSeries {
+        std::string label;
+        Color color;
+        std::vector<HitSample> samples;
+    };
+
+    Theme theme_ = Theme::Light;
+    std::vector<HitSeries> hits_;
+
+    friend Frame buildFrame(const ChartSpec& spec, Size viewport, TextShaper& text);
 };
 
 // Throws std::invalid_argument for invalid dimensions, domains, or styles.

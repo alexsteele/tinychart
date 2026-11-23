@@ -23,7 +23,7 @@ int main() {
 
 ## Features
 
-- Line and scatter charts with titles, axis labels, and legends.
+- Line and scatter charts with titles, axis labels, legends, light and dark themes, and hover tooltips.
 - Renders an AppKit view or exports to PNG.
 
 ## How it works
@@ -52,6 +52,8 @@ In an Objective-C++ `NSView`, include `<tinychart/macos.hpp>` and store your cha
 
 Set `needsDisplay` when your data changes. If the view redraws frequently, cache the frame and rebuild it when the data or view size changes, as in the [AppKit demo](examples/chart_demo.mm).
 
+For hover, build a layer with `frame.hoverOverlay(cursor, text)` and pass its address to `drawFrame`. Use `frame.nearestPoint(cursor, radius)` for a custom tooltip.
+
 ## Install
 
 Requires Apple Command Line Tools, CMake 3.24 or later, and Ninja.
@@ -62,5 +64,8 @@ cmake --preset dev
 cmake --build --preset dev
 ./build/dev/render_chart build/dev/sample.png
 ./build/dev/render_chart build/dev/sample@2x.png 2
+./build/dev/render_chart build/dev/dark.png --dark
 open build/dev/chart_demo.app
 ```
+
+Choose an appearance from the demo’s **Theme** menu, or use `.theme = tinychart::Theme::MarketDark` in `makeChart`.
